@@ -2,9 +2,9 @@
   "name": "super-ai-predict",
   "version": "1.0.0",
   "description": "API dự đoán Tài Xỉu siêu cấp vip",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node server.js"
   },
   "keywords": [
     "taixiu",
