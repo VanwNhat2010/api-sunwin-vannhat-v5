@@ -5,7 +5,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const historicalDataCache = new NodeCache({ stdTTL: 1800, checkperiod: 60 });
-const SUNWIN_API_URL = 'https://binhtool90-sunwin-predict.onrender.com/api/taixiu/sunwin';
+// Updated API URL
+const SUNWIN_API_URL = 'https://sunlol.onrender.com/myapi/taixiu/history';
 
 const modelPredictions = {
     trend: {},
@@ -29,13 +30,14 @@ class HistoricalDataManager {
     }
 
     addSession(newData) {
-        if (!newData || !newData.phien) return false;
-        if (this.history.some(item => item.phien === newData.phien)) return false;
+        // Updated to use 'session' and 'result'
+        if (!newData || !newData.session) return false;
+        if (this.history.some(item => item.session === newData.session)) return false;
         this.history.push(newData);
         if (this.history.length > this.maxHistoryLength) {
             this.history = this.history.slice(this.history.length - this.maxHistoryLength);
         }
-        this.history.sort((a, b) => a.phien - b.phien);
+        this.history.sort((a, b) => a.session - b.session);
         return true;
     }
 
@@ -63,27 +65,28 @@ class PredictionEngine {
             return;
         }
 
-        const taiData = history.filter(h => h.ket_qua === 'Tài');
-        const xiuData = history.filter(h => h.ket_qua === 'Xỉu');
+        // Updated to use 'result' and 'total'
+        const taiData = history.filter(h => h.result === 'Tài');
+        const xiuData = history.filter(h => h.result === 'Xỉu');
 
         const taiFreq = taiData.length / history.length;
         const xiuFreq = xiuData.length / history.length;
         
         const taiStreakAvg = taiData.reduce((sum, h, i) => {
-            if (i > 0 && taiData[i-1].phien === h.phien - 1) return sum + 1;
+            if (i > 0 && taiData[i-1].session === h.session - 1) return sum + 1;
             return sum;
         }, 0) / taiData.length;
 
         const xiuStreakAvg = xiuData.reduce((sum, h, i) => {
-            if (i > 0 && xiuData[i-1].phien === h.phien - 1) return sum + 1;
+            if (i > 0 && xiuData[i-1].session === h.session - 1) return sum + 1;
             return sum;
         }, 0) / xiuData.length;
         
         this.mlModel = { taiFreq, xiuFreq, taiStreakAvg, xiuStreakAvg };
         
         const last100 = history.slice(-100);
-        const last100Results = last100.map(h => h.ket_qua);
-        const last100Scores = last100.map(h => h.tong || 0);
+        const last100Results = last100.map(h => h.result);
+        const last100Scores = last100.map(h => h.total || 0);
         this.deepLearningModel = {
             taiDominance: last100Results.filter(r => r === 'Tài').length > last100.length * 0.6,
             xiuDominance: last100Results.filter(r => r === 'Xỉu').length > last100.length * 0.6,
@@ -93,7 +96,7 @@ class PredictionEngine {
         const last200 = history.slice(-200);
         const uniquePatterns = {};
         for(let i = 0; i < last200.length - 5; i++){
-            const pattern = last200.slice(i, i+5).map(h => h.ket_qua).join(',');
+            const pattern = last200.slice(i, i+5).map(h => h.result).join(',');
             uniquePatterns[pattern] = (uniquePatterns[pattern] || 0) + 1;
         }
         const commonPattern = Object.entries(uniquePatterns).filter(([p, count]) => count > 1);
@@ -109,7 +112,7 @@ class PredictionEngine {
         if (!this.mlModel || history.length < 500) {
             return { prediction: 'Chờ đợi', reason: 'Chưa đủ dữ liệu để huấn luyện Trader X' };
         }
-        const last10 = history.slice(-10).map(h => h.ket_qua);
+        const last10 = history.slice(-10).map(h => h.result);
         const currentStreak = this.detectStreakAndBreak(history).streak;
         const taiInLast10 = last10.filter(r => r === 'Tài').length;
         const xiuInLast10 = last10.filter(r => r === 'Xỉu').length;
@@ -126,8 +129,8 @@ class PredictionEngine {
         if (!this.deepLearningModel || history.length < 500) {
             return { prediction: 'Chờ đợi', reason: 'Chưa đủ dữ liệu để kích hoạt Pháp Sư AI' };
         }
-        const last3 = history.slice(-3).map(h => h.ket_qua);
-        const last5Scores = history.slice(-5).map(h => h.tong || 0);
+        const last3 = history.slice(-3).map(h => h.result);
+        const last5Scores = history.slice(-5).map(h => h.total || 0);
         const avgScore = last5Scores.reduce((sum, score) => sum + score, 0) / last5Scores.length;
         if (this.deepLearningModel.taiDominance && last3.join(',') === 'Tài,Tài,Tài') {
             return { prediction: 'Xỉu', reason: '[PHÁP SƯ AI] Phát hiện lỗi liên tiếp 3 Tài trong chu kỳ Tài thống trị, dự đoán bẻ cầu' };
@@ -149,7 +152,7 @@ class PredictionEngine {
             return { prediction: 'Chờ đợi', reason: 'Chưa đủ dữ liệu để kích hoạt Thần Lực AI' };
         }
         const { streak, currentResult } = this.detectStreakAndBreak(history);
-        const last5 = history.slice(-5).map(h => h.ket_qua).join(',');
+        const last5 = history.slice(-5).map(h => h.result).join(',');
 
         if(this.divineModel.hasRepeatedPattern && this.divineModel.mostCommonPattern === last5) {
              const patternArray = this.divineModel.mostCommonPattern.split(',');
@@ -165,15 +168,15 @@ class PredictionEngine {
     detectStreakAndBreak(history) {
         if (!history || history.length === 0) return { streak: 0, currentResult: null, breakProb: 0.0 };
         let streak = 1;
-        const currentResult = history[history.length - 1].ket_qua;
+        const currentResult = history[history.length - 1].result;
         for (let i = history.length - 2; i >= 0; i--) {
-            if (history[i].ket_qua === currentResult) {
+            if (history[i].result === currentResult) {
                 streak++;
             } else {
                 break;
             }
         }
-        const last15 = history.slice(-15).map(h => h.ket_qua);
+        const last15 = history.slice(-15).map(h => h.result);
         if (!last15.length) return { streak, currentResult, breakProb: 0.0 };
         const switches = last15.slice(1).reduce((count, curr, idx) => count + (curr !== last15[idx] ? 1 : 0), 0);
         const taiCount = last15.filter(r => r === 'Tài').length;
@@ -198,8 +201,8 @@ class PredictionEngine {
         let correctCount = 0;
         for (let i = 0; i < lookback; i++) {
             const historyIndex = history.length - (i + 2);
-            const pred = modelPredictions[modelName][history[historyIndex].phien];
-            const actual = history[history.length - (i + 1)].ket_qua;
+            const pred = modelPredictions[modelName][history[historyIndex].session];
+            const actual = history[history.length - (i + 1)].result;
             if (pred && ((pred === 'Tài' && actual === 'Tài') || (pred === 'Xỉu' && actual === 'Xỉu'))) {
                 correctCount++;
             }
@@ -212,7 +215,7 @@ class PredictionEngine {
     supernovaAI(history) {
         const historyLength = history.length;
         if (historyLength < 100) return { prediction: 'Chờ đợi', reason: 'Không đủ dữ liệu cho Supernova AI', source: 'SUPERNOVA' };
-        const last30Scores = history.slice(-30).map(h => h.tong || 0);
+        const last30Scores = history.slice(-30).map(h => h.total || 0);
         const avgScore = last30Scores.reduce((sum, score) => sum + score, 0) / 30;
         const scoreStdDev = Math.sqrt(last30Scores.map(x => Math.pow(x - avgScore, 2)).reduce((a, b) => a + b) / 30);
         const lastScore = last30Scores[last30Scores.length - 1];
@@ -222,7 +225,7 @@ class PredictionEngine {
         if (lastScore < avgScore - scoreStdDev * 2) {
             return { prediction: 'Tài', reason: `[SUPERNOVA] Điểm số gần đây (${lastScore}) quá thấp so với trung bình, dự đoán đảo chiều`, source: 'SUPERNOVA' };
         }
-        const last6 = history.slice(-6).map(h => h.ket_qua);
+        const last6 = history.slice(-6).map(h => h.result);
         if (last6.join(',') === 'Tài,Xỉu,Tài,Xỉu,Tài,Xỉu' || last6.join(',') === 'Xỉu,Tài,Xỉu,Tài,Xỉu,Tài') {
             const nextPred = last6[last6.length - 1] === 'Tài' ? 'Xỉu' : 'Tài';
             return { prediction: nextPred, reason: `[SUPERNOVA] Phát hiện cầu 1-1 dài hạn, dự đoán theo mẫu`, source: 'SUPERNOVA' };
@@ -233,8 +236,8 @@ class PredictionEngine {
     deepCycleAI(history) {
         const historyLength = history.length;
         if (historyLength < 50) return { prediction: 'Chờ đợi', reason: 'Không đủ dữ liệu cho DeepCycleAI' };
-        const last50 = history.slice(-50).map(h => h.ket_qua);
-        const last15 = history.slice(-15).map(h => h.ket_qua);
+        const last50 = history.slice(-50).map(h => h.result);
+        const last15 = history.slice(-15).map(h => h.result);
         const taiCounts = [];
         const xiuCounts = [];
         for (let i = 0; i < last50.length - 10; i++) {
@@ -259,12 +262,12 @@ class PredictionEngine {
         if (!history || history.length < 3) {
             return { prediction: 'Chờ đợi', reason: '[AI VANNHAT] Không đủ lịch sử để phân tích chuyên sâu', source: 'AI VANNHAT' };
         }
-        const last5Results = history.slice(-5).map(item => item.ket_qua);
-        const last5Scores = history.slice(-5).map(item => item.tong || 0);
+        const last5Results = history.slice(-5).map(item => item.result);
+        const last5Scores = history.slice(-5).map(item => item.total || 0);
         const taiCount = last5Results.filter(result => result === 'Tài').length;
         const xiuCount = last5Results.filter(result => result === 'Xỉu').length;
         if (history.length >= 3) {
-            const last3Results = history.slice(-3).map(item => item.ket_qua);
+            const last3Results = history.slice(-3).map(item => item.result);
             if (last3Results.join(',') === 'Tài,Xỉu,Tài') {
                 return { prediction: 'Xỉu', reason: '[AI VANNHAT] Phát hiện mẫu 1T1X → nên đánh Xỉu', source: 'AI VANNHAT' };
             } else if (last3Results.join(',') === 'Xỉu,Tài,Xỉu') {
@@ -272,16 +275,16 @@ class PredictionEngine {
             }
         }
         if (history.length >= 4) {
-            const last4Results = history.slice(-4).map(item => item.ket_qua);
+            const last4Results = history.slice(-4).map(item => item.result);
             if (last4Results.join(',') === 'Tài,Tài,Xỉu,Xỉu') {
                 return { prediction: 'Tài', reason: '[AI VANNHAT] Phát hiện mẫu 2T2X → nên đánh Tài', source: 'AI VANNHAT' };
             } else if (last4Results.join(',') === 'Xỉu,Xỉu,Tài,Tài') {
                 return { prediction: 'Xỉu', reason: '[AI VANNHAT] Phát hiện mẫu 2X2T → nên đánh Xỉu', source: 'AI VANNHAT' };
             }
         }
-        if (history.length >= 9 && history.slice(-6).every(item => item.ket_qua === 'Tài')) {
+        if (history.length >= 9 && history.slice(-6).every(item => item.result === 'Tài')) {
             return { prediction: 'Xỉu', reason: '[AI VANNHAT] Chuỗi Tài quá dài (6 lần) → dự đoán Xỉu', source: 'AI VANNHAT' };
-        } else if (history.length >= 9 && history.slice(-6).every(item => item.ket_qua === 'Xỉu')) {
+        } else if (history.length >= 9 && history.slice(-6).every(item => item.result === 'Xỉu')) {
             return { prediction: 'Tài', reason: '[AI VANNHAT] Chuỗi Xỉu quá dài (6 lần) → dự đoán Tài', source: 'AI VANNHAT' };
         }
         const avgScore = last5Scores.reduce((sum, score) => sum + score, 0) / (last5Scores.length || 1);
@@ -295,8 +298,8 @@ class PredictionEngine {
         } else if (xiuCount > taiCount + 1) {
             return { prediction: 'Tài', reason: `[AI VANNHAT] Xỉu chiếm đa số (${xiuCount}/${last5Results.length}) → dự đoán Tài`, source: 'AI VANNHAT' };
         } else {
-            const overallTai = history.filter(h => h.ket_qua === 'Tài').length;
-            const overallXiu = history.filter(h => h.ket_qua === 'Xỉu').length;
+            const overallTai = history.filter(h => h.result === 'Tài').length;
+            const overallXiu = history.filter(h => h.result === 'Xỉu').length;
             if (overallTai > overallXiu) {
                 return { prediction: 'Xỉu', reason: '[Bẻ Cầu Thông Minh] Tổng thể Tài nhiều hơn → dự đoán Xỉu', source: 'AI VANNHAT' };
             } else {
@@ -308,8 +311,8 @@ class PredictionEngine {
     smartBridgeBreak(history) {
         if (!history || history.length < 5) return { prediction: 'Chờ đợi', breakProb: 0.0, reason: 'Không đủ dữ liệu để theo/bẻ cầu' };
         const { streak, currentResult, breakProb } = this.detectStreakAndBreak(history);
-        const last20 = history.slice(-20).map(h => h.ket_qua);
-        const lastScores = history.slice(-20).map(h => h.tong || 0);
+        const last20 = history.slice(-20).map(h => h.result);
+        const lastScores = history.slice(-20).map(h => h.total || 0);
         let breakProbability = breakProb;
         let reason = '';
         const avgScore = lastScores.reduce((sum, score) => sum + score, 0) / (lastScores.length || 1);
@@ -348,7 +351,7 @@ class PredictionEngine {
             if (breakProb > 0.6) return currentResult === 'Tài' ? 'Xỉu' : 'Tài';
             return currentResult;
         }
-        const last15 = history.slice(-15).map(h => h.ket_qua);
+        const last15 = history.slice(-15).map(h => h.result);
         if (!last15.length) return 'Chờ đợi';
         const weights = last15.map((_, i) => Math.pow(1.3, i));
         const taiWeighted = weights.reduce((sum, w, i) => sum + (last15[i] === 'Tài' ? w : 0), 0);
@@ -378,7 +381,7 @@ class PredictionEngine {
             if (breakProb > 0.6) return currentResult === 'Tài' ? 'Xỉu' : 'Tài';
             return currentResult;
         }
-        const last8 = history.slice(-8).map(h => h.ket_qua);
+        const last8 = history.slice(-8).map(h => h.result);
         if (!last8.length) return 'Chờ đợi';
         const patterns = [];
         if (last8.length >= 2) {
@@ -401,7 +404,7 @@ class PredictionEngine {
             if (breakProb > 0.6) return currentResult === 'Tài' ? 'Xỉu' : 'Tài';
             return currentResult;
         }
-        const last12 = history.slice(-12).map(h => h.ket_qua);
+        const last12 = history.slice(-12).map(h => h.result);
         if (!last12.length) return 'Chờ đợi';
         const taiCount = last12.filter(r => r === 'Tài').length;
         const xiuCount = last12.length - taiCount;
@@ -418,14 +421,14 @@ class PredictionEngine {
             if (breakProb > 0.6) return currentResult === 'Tài' ? 'Xỉu' : 'Tài';
             return currentResult;
         }
-        const last10 = history.slice(-10).map(h => h.ket_qua);
+        const last10 = history.slice(-10).map(h => h.result);
         if (!last10.length) return 'Chờ đợi';
         const switches = last10.slice(1).reduce((count, curr, idx) => count + (curr !== last10[idx] ? 1 : 0), 0);
         return switches >= 4 ? (last10[last10.length - 1] === 'Xỉu' ? 'Tài' : 'Xỉu') : (last10[last10.length - 1] === 'Xỉu' ? 'Tài' : 'Xỉu');
     }
 
     isBadPattern(history) {
-        const last15 = history.slice(-15).map(h => h.ket_qua);
+        const last15 = history.slice(-15).map(h => h.result);
         if (!last15.length) return false;
         const switches = last15.slice(1).reduce((count, curr, idx) => count + (curr !== last15[idx] ? 1 : 0), 0);
         const { streak } = this.detectStreakAndBreak(history);
@@ -433,8 +436,8 @@ class PredictionEngine {
     }
 
     aiVannhatLogic(history) {
-        const recentHistory = history.slice(-5).map(h => h.ket_qua);
-        const recentScores = history.slice(-5).map(h => h.tong || 0);
+        const recentHistory = history.slice(-5).map(h => h.result);
+        const recentScores = history.slice(-5).map(h => h.total || 0);
         const taiCount = recentHistory.filter(r => r === 'Tài').length;
         const xiuCount = recentHistory.filter(r => r === 'Xỉu').length;
         const { streak, currentResult } = this.detectStreakAndBreak(history);
@@ -442,7 +445,7 @@ class PredictionEngine {
             return { prediction: currentResult, reason: `[Theo Cầu Thông Minh] Chuỗi ngắn ${streak} ${currentResult}, tiếp tục theo cầu`, source: 'AI VANNHAT' };
         }
         if (history.length >= 3) {
-            const last3 = history.slice(-3).map(h => h.ket_qua);
+            const last3 = history.slice(-3).map(h => h.result);
             if (last3.join(',') === 'Tài,Xỉu,Tài') {
                 return { prediction: 'Xỉu', reason: '[Bẻ Cầu Thông Minh] Phát hiện mẫu 1T1X → tiếp theo nên đánh Xỉu', source: 'AI VANNHAT' };
             } else if (last3.join(',') === 'Xỉu,Tài,Xỉu') {
@@ -450,16 +453,16 @@ class PredictionEngine {
             }
         }
         if (history.length >= 4) {
-            const last4 = history.slice(-4).map(h => h.ket_qua);
+            const last4 = history.slice(-4).map(h => h.result);
             if (last4.join(',') === 'Tài,Tài,Xỉu,Xỉu') {
                 return { prediction: 'Tài', reason: '[Theo Cầu Thông Minh] Phát hiện mẫu 2T2X → tiếp theo nên đánh Tài', source: 'AI VANNHAT' };
             } else if (last4.join(',') === 'Xỉu,Xỉu,Tài,Tài') {
                 return { prediction: 'Xỉu', reason: '[Theo Cầu Thông Minh] Phát hiện mẫu 2X2T → tiếp theo nên đánh Xỉu', source: 'AI VANNHAT' };
             }
         }
-        if (history.length >= 7 && history.slice(-7).every(h => h.ket_qua === 'Xỉu')) {
+        if (history.length >= 7 && history.slice(-7).every(h => h.result === 'Xỉu')) {
             return { prediction: 'Tài', reason: '[Bẻ Cầu Thông Minh] Chuỗi Xỉu quá dài (7 lần) → dự đoán Tài', source: 'AI VANNHAT' };
-        } else if (history.length >= 7 && history.slice(-7).every(h => h.ket_qua === 'Tài')) {
+        } else if (history.length >= 7 && history.slice(-7).every(h => h.result === 'Tài')) {
             return { prediction: 'Xỉu', reason: '[Bẻ Cầu Thông Minh] Chuỗi Tài quá dài (7 lần) → dự đoán Xỉu', source: 'AI VANNHAT' };
         }
         const avgScore = recentScores.reduce((sum, score) => sum + score, 0) / (recentScores.length || 1);
@@ -473,186 +476,8 @@ class PredictionEngine {
         } else if (xiuCount > taiCount + 1) {
             return { prediction: 'Tài', reason: `[Bẻ Cầu Thông Minh] Xỉu chiếm đa số (${xiuCount}/${recentHistory.length}) → dự đoán Tài`, source: 'AI VANNHAT' };
         } else {
-            const overallTai = history.filter(h => h.ket_qua === 'Tài').length;
-            const overallXiu = history.filter(h => h.ket_qua === 'Xỉu').length;
-            if (overallTai > overallXiu) {
-                return { prediction: 'Xỉu', reason: '[Bẻ Cầu Thông Minh] Tổng thể Tài nhiều hơn → dự đoán Xỉu', source: 'AI VANNHAT' };
-            } else {
-                return { prediction: 'Tài', reason: '[Theo Cầu Thông Minh] Tổng thể Xỉu nhiều hơn hoặc bằng → dự đoán Tài', source: 'AI VANNHAT' };
-            }
-        }
-    }
-
-    smartBridgeBreak(history) {
-        if (!history || history.length < 5) return { prediction: 'Chờ đợi', breakProb: 0.0, reason: 'Không đủ dữ liệu để theo/bẻ cầu' };
-        const { streak, currentResult, breakProb } = this.detectStreakAndBreak(history);
-        const last20 = history.slice(-20).map(h => h.ket_qua);
-        const lastScores = history.slice(-20).map(h => h.tong || 0);
-        let breakProbability = breakProb;
-        let reason = '';
-        const avgScore = lastScores.reduce((sum, score) => sum + score, 0) / (lastScores.length || 1);
-        const scoreDeviation = lastScores.reduce((sum, score) => sum + Math.abs(score - avgScore), 0) / (lastScores.length || 1);
-        const last5 = last20.slice(-5);
-        const patternCounts = {};
-        for (let i = 0; i <= last20.length - 2; i++) {
-            const pattern = last20.slice(i, i + 2).join(',');
-            patternCounts[pattern] = (patternCounts[pattern] || 0) + 1;
-        }
-        const mostCommonPattern = Object.entries(patternCounts).sort((a, b) => b[1] - a[1])[0];
-        const isStablePattern = mostCommonPattern && mostCommonPattern[1] >= 3;
-        if (streak >= 3 && scoreDeviation < 2.0 && !isStablePattern) {
-            breakProbability = Math.max(breakProbability - 0.25, 0.1);
-            reason = `[Theo Cầu Thông Minh] Chuỗi ${streak} ${currentResult} ổn định, tiếp tục theo cầu`;
-        } else if (streak >= 6) {
-            breakProbability = Math.min(breakProbability + 0.3, 0.95);
-            reason = `[Bẻ Cầu Thông Minh] Chuỗi ${streak} ${currentResult} quá dài, khả năng bẻ cầu cao`;
-        } else if (streak >= 3 && scoreDeviation > 3.5) {
-            breakProbability = Math.min(breakProbability + 0.25, 0.9);
-            reason = `[Bẻ Cầu Thông Minh] Biến động điểm số lớn (${scoreDeviation.toFixed(1)}), khả năng bẻ cầu tăng`;
-        } else if (isStablePattern && last5.every(r => r === currentResult)) {
-            breakProbability = Math.min(breakProbability + 0.2, 0.85);
-            reason = `[Bẻ Cầu Thông Minh] Phát hiện mẫu lặp ${mostCommonPattern[0]}, có khả năng bẻ cầu`;
-        } else {
-            breakProbability = Math.max(breakProbability - 0.2, 0.1);
-            reason = `[Theo Cầu Thông Minh] Không phát hiện mẫu bẻ mạnh, tiếp tục theo cầu`;
-        }
-        let prediction = breakProbability > 0.5 ? (currentResult === 'Tài' ? 'Xỉu' : 'Tài') : currentResult;
-        return { prediction, breakProb: breakProbability, reason };
-    }
-
-    trendAndProb(history) {
-        const { streak, currentResult, breakProb } = this.detectStreakAndBreak(history);
-        if (streak >= 3) {
-            if (breakProb > 0.6) return currentResult === 'Tài' ? 'Xỉu' : 'Tài';
-            return currentResult;
-        }
-        const last15 = history.slice(-15).map(h => h.ket_qua);
-        if (!last15.length) return 'Chờ đợi';
-        const weights = last15.map((_, i) => Math.pow(1.3, i));
-        const taiWeighted = weights.reduce((sum, w, i) => sum + (last15[i] === 'Tài' ? w : 0), 0);
-        const xiuWeighted = weights.reduce((sum, w, i) => sum + (last15[i] === 'Xỉu' ? w : 0), 0);
-        const totalWeight = taiWeighted + xiuWeighted;
-        const last10 = last15.slice(-10);
-        const patterns = [];
-        if (last10.length >= 4) {
-            for (let i = 0; i <= last10.length - 4; i++) {
-                patterns.push(last10.slice(i, i + 4).join(','));
-            }
-        }
-        const patternCounts = patterns.reduce((acc, p) => { acc[p] = (acc[p] || 0) + 1; return acc; }, {});
-        const mostCommon = Object.entries(patternCounts).sort((a, b) => b[1] - a[1])[0];
-        if (mostCommon && mostCommon[1] >= 3) {
-            const pattern = mostCommon[0].split(',');
-            return pattern[pattern.length - 1] === last10[last10.length - 1] ? 'Tài' : 'Xỉu';
-        } else if (totalWeight > 0 && Math.abs(taiWeighted - xiuWeighted) / totalWeight >= 0.25) {
-            return taiWeighted > xiuWeighted ? 'Tài' : 'Xỉu';
-        }
-        return last15[last15.length - 1] === 'Xỉu' ? 'Tài' : 'Xỉu';
-    }
-
-    shortPattern(history) {
-        const { streak, currentResult, breakProb } = this.detectStreakAndBreak(history);
-        if (streak >= 2) {
-            if (breakProb > 0.6) return currentResult === 'Tài' ? 'Xỉu' : 'Tài';
-            return currentResult;
-        }
-        const last8 = history.slice(-8).map(h => h.ket_qua);
-        if (!last8.length) return 'Chờ đợi';
-        const patterns = [];
-        if (last8.length >= 2) {
-            for (let i = 0; i <= last8.length - 2; i++) {
-                patterns.push(last8.slice(i, i + 2).join(','));
-            }
-        }
-        const patternCounts = patterns.reduce((acc, p) => { acc[p] = (acc[p] || 0) + 1; return acc; }, {});
-        const mostCommon = Object.entries(patternCounts).sort((a, b) => b[1] - a[1])[0];
-        if (mostCommon && mostCommon[1] >= 2) {
-            const pattern = mostCommon[0].split(',');
-            return pattern[pattern.length - 1] === last8[last8.length - 1] ? 'Tài' : 'Xỉu';
-        }
-        return last8[last8.length - 1] === 'Xỉu' ? 'Tài' : 'Xỉu';
-    }
-
-    meanDeviation(history) {
-        const { streak, currentResult, breakProb } = this.detectStreakAndBreak(history);
-        if (streak >= 2) {
-            if (breakProb > 0.6) return currentResult === 'Tài' ? 'Xỉu' : 'Tài';
-            return currentResult;
-        }
-        const last12 = history.slice(-12).map(h => h.ket_qua);
-        if (!last12.length) return 'Chờ đợi';
-        const taiCount = last12.filter(r => r === 'Tài').length;
-        const xiuCount = last12.length - taiCount;
-        const deviation = Math.abs(taiCount - xiuCount) / last12.length;
-        if (deviation < 0.2) {
-            return last12[last12.length - 1] === 'Xỉu' ? 'Tài' : 'Xỉu';
-        }
-        return xiuCount > taiCount ? 'Tài' : 'Xỉu';
-    }
-
-    recentSwitch(history) {
-        const { streak, currentResult, breakProb } = this.detectStreakAndBreak(history);
-        if (streak >= 2) {
-            if (breakProb > 0.6) return currentResult === 'Tài' ? 'Xỉu' : 'Tài';
-            return currentResult;
-        }
-        const last10 = history.slice(-10).map(h => h.ket_qua);
-        if (!last10.length) return 'Chờ đợi';
-        const switches = last10.slice(1).reduce((count, curr, idx) => count + (curr !== last10[idx] ? 1 : 0), 0);
-        return switches >= 4 ? (last10[last10.length - 1] === 'Xỉu' ? 'Tài' : 'Xỉu') : (last10[last10.length - 1] === 'Xỉu' ? 'Tài' : 'Xỉu');
-    }
-
-    isBadPattern(history) {
-        const last15 = history.slice(-15).map(h => h.ket_qua);
-        if (!last15.length) return false;
-        const switches = last15.slice(1).reduce((count, curr, idx) => count + (curr !== last15[idx] ? 1 : 0), 0);
-        const { streak } = this.detectStreakAndBreak(history);
-        return switches >= 6 || streak >= 7;
-    }
-
-    aiVannhatLogic(history) {
-        const recentHistory = history.slice(-5).map(h => h.ket_qua);
-        const recentScores = history.slice(-5).map(h => h.tong || 0);
-        const taiCount = recentHistory.filter(r => r === 'Tài').length;
-        const xiuCount = recentHistory.filter(r => r === 'Xỉu').length;
-        const { streak, currentResult } = this.detectStreakAndBreak(history);
-        if (streak >= 2 && streak <= 4) {
-            return { prediction: currentResult, reason: `[Theo Cầu Thông Minh] Chuỗi ngắn ${streak} ${currentResult}, tiếp tục theo cầu`, source: 'AI VANNHAT' };
-        }
-        if (history.length >= 3) {
-            const last3 = history.slice(-3).map(h => h.ket_qua);
-            if (last3.join(',') === 'Tài,Xỉu,Tài') {
-                return { prediction: 'Xỉu', reason: '[Bẻ Cầu Thông Minh] Phát hiện mẫu 1T1X → tiếp theo nên đánh Xỉu', source: 'AI VANNHAT' };
-            } else if (last3.join(',') === 'Xỉu,Tài,Xỉu') {
-                return { prediction: 'Tài', reason: '[Bẻ Cầu Thông Minh] Phát hiện mẫu 1X1T → tiếp theo nên đánh Tài', source: 'AI VANNHAT' };
-            }
-        }
-        if (history.length >= 4) {
-            const last4 = history.slice(-4).map(h => h.ket_qua);
-            if (last4.join(',') === 'Tài,Tài,Xỉu,Xỉu') {
-                return { prediction: 'Tài', reason: '[Theo Cầu Thông Minh] Phát hiện mẫu 2T2X → tiếp theo nên đánh Tài', source: 'AI VANNHAT' };
-            } else if (last4.join(',') === 'Xỉu,Xỉu,Tài,Tài') {
-                return { prediction: 'Xỉu', reason: '[Theo Cầu Thông Minh] Phát hiện mẫu 2X2T → tiếp theo nên đánh Xỉu', source: 'AI VANNHAT' };
-            }
-        }
-        if (history.length >= 7 && history.slice(-7).every(h => h.ket_qua === 'Xỉu')) {
-            return { prediction: 'Tài', reason: '[Bẻ Cầu Thông Minh] Chuỗi Xỉu quá dài (7 lần) → dự đoán Tài', source: 'AI VANNHAT' };
-        } else if (history.length >= 7 && history.slice(-7).every(h => h.ket_qua === 'Tài')) {
-            return { prediction: 'Xỉu', reason: '[Bẻ Cầu Thông Minh] Chuỗi Tài quá dài (7 lần) → dự đoán Xỉu', source: 'AI VANNHAT' };
-        }
-        const avgScore = recentScores.reduce((sum, score) => sum + score, 0) / (recentScores.length || 1);
-        if (avgScore > 11) {
-            return { prediction: 'Tài', reason: `[Theo Cầu Thông Minh] Điểm trung bình cao (${avgScore.toFixed(1)}) → dự đoán Tài`, source: 'AI VANNHAT' };
-        } else if (avgScore < 7) {
-            return { prediction: 'Xỉu', reason: `[Theo Cầu Thông Minh] Điểm trung bình thấp (${avgScore.toFixed(1)}) → dự đoán Xỉu`, source: 'AI VANNHAT' };
-        }
-        if (taiCount > xiuCount + 1) {
-            return { prediction: 'Xỉu', reason: `[Bẻ Cầu Thông Minh] Tài chiếm đa số (${taiCount}/${recentHistory.length}) → dự đoán Xỉu`, source: 'AI VANNHAT' };
-        } else if (xiuCount > taiCount + 1) {
-            return { prediction: 'Tài', reason: `[Bẻ Cầu Thông Minh] Xỉu chiếm đa số (${xiuCount}/${recentHistory.length}) → dự đoán Tài`, source: 'AI VANNHAT' };
-        } else {
-            const overallTai = history.filter(h => h.ket_qua === 'Tài').length;
-            const overallXiu = history.filter(h => h.ket_qua === 'Xỉu').length;
+            const overallTai = history.filter(h => h.result === 'Tài').length;
+            const overallXiu = history.filter(h => h.result === 'Xỉu').length;
             if (overallTai > overallXiu) {
                 return { prediction: 'Xỉu', reason: '[Bẻ Cầu Thông Minh] Tổng thể Tài nhiều hơn → dự đoán Xỉu', source: 'AI VANNHAT' };
             } else {
@@ -694,7 +519,8 @@ class PredictionEngine {
         const phapsuPred = this.phapsuAI(history);
         const thanlucPred = this.thanlucAI(history);
 
-        const currentIndex = history[history.length - 1].phien;
+        // Updated to use 'session'
+        const currentIndex = history[history.length - 1].session;
         modelPredictions.trend[currentIndex] = trendPred;
         modelPredictions.short[currentIndex] = shortPred;
         modelPredictions.mean[currentIndex] = meanPred;
@@ -801,7 +627,7 @@ class PredictionEngine {
         if (taiScore > xiuScore) {
             finalPrediction = 'Tài';
             finalScore = taiScore;
-        } else if (xiuScore > taiScore) {
+        } else if (xiuScore > totalScore) {
             finalPrediction = 'Xỉu';
             finalScore = xiuScore;
         } else {
@@ -867,23 +693,24 @@ app.get('/api/sunwin/predict', async (req, res) => {
 
     try {
         const response = await axios.get(SUNWIN_API_URL, { timeout: 8000 });
-        currentData = response.data;
+        currentData = response.data.history.slice(-1)[0]; // Updated to get the last item from the 'history' array
 
-        if (currentData && currentData.phien && currentData.ket_qua) {
+        if (currentData && currentData.session && currentData.result) {
             historyManager.addSession(currentData);
             historicalDataCache.set("full_history", historyManager.getHistory());
         }
 
         const predictionResult = predictionEngine.predict();
-
+        
+        // Updated to use the new object property names
         const result = {
             id: "Tele:@CsTool001",
             thoi_gian_cap_nhat: new Date().toISOString(),
-            phien: currentData ? currentData.phien : (historyManager.getHistory().length > 0 ? historyManager.getHistory().slice(-1)[0].phien : null),
-            ket_qua: currentData ? currentData.ket_qua : null,
-            xuc_xac: currentData ? [currentData.xuc_xac_1, currentData.xuc_xac_2, currentData.xuc_xac_3] : [],
-            tong: currentData ? currentData.tong : null,
-            phien_sau: currentData ? currentData.phien + 1 : (historyManager.getHistory().length > 0 ? historyManager.getHistory().slice(-1)[0].phien + 1 : null),
+            phien: currentData ? currentData.session : (historyManager.getHistory().length > 0 ? historyManager.getHistory().slice(-1)[0].session : null),
+            ket_qua: currentData ? currentData.result : null,
+            xuc_xac: currentData ? currentData.dice : [],
+            tong: currentData ? currentData.total : null,
+            phien_sau: currentData ? currentData.session + 1 : (historyManager.getHistory().length > 0 ? historyManager.getHistory().slice(-1)[0].session + 1 : null),
             du_doan: predictionResult.du_doan,
             do_tin_cay: predictionResult.do_tin_cay,
             giai_thich: predictionResult.giai_thich,
@@ -898,13 +725,14 @@ app.get('/api/sunwin/predict', async (req, res) => {
         console.error("Lỗi khi gọi API hoặc xử lý dữ liệu:", error.message);
         if (historyManager.getHistory().length >= 500) {
             const predictionResult = predictionEngine.predict();
+            // Updated to use the new object property names
             res.status(200).json({
                 id: "Tele:@CsTool001",
                 thoi_gian_nhan_loi: new Date().toISOString(),
                 error_from_api: "Không thể lấy dữ liệu phiên hiện tại. Sử dụng dữ liệu lịch sử cached.",
-                phien: historyManager.getHistory().slice(-1)[0].phien,
-                ket_qua: historyManager.getHistory().slice(-1)[0].ket_qua,
-                phien_sau: historyManager.getHistory().slice(-1)[0].phien + 1,
+                phien: historyManager.getHistory().slice(-1)[0].session,
+                ket_qua: historyManager.getHistory().slice(-1)[0].result,
+                phien_sau: historyManager.getHistory().slice(-1)[0].session + 1,
                 du_doan: predictionResult.du_doan,
                 do_tin_cay: predictionResult.do_tin_cay,
                 giai_thich: `(Dữ liệu cũ) ${predictionResult.giai_thich}`,
